@@ -144,6 +144,46 @@ export class WAConnection extends Base {
      * @param chunkSize the number of messages to load in a single request
      * @param mostRecentFirst retreive the most recent message first or retreive from the converation start
      */
+    loadTodayMessages(jid: string, onMessage: (m: WAMessage) => Promise<void>|void, chunkSize = 25, mostRecentFirst = true) {
+        let offsetID = null
+        let stop = false
+        const loadMessage = async () => {
+            const {messages} = await this.loadMessages(jid, chunkSize, offsetID, mostRecentFirst)
+            // callback with most recent message first (descending order of date)
+            let lastMessage
+            if (mostRecentFirst) {
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    if (!this.checkIsTodayMessage(messages[i].messageTimestamp.low)) {
+                        stop = true
+                        break
+                    }
+                    await onMessage(messages[i])
+                    lastMessage = messages[i]
+                }
+            } else {
+                for (let i = 0; i < messages.length; i++) {
+                    if (!this.checkIsTodayMessage(messages[i].messageTimestamp.low)) continue
+                    await onMessage(messages[i])
+                    lastMessage = messages[i]
+                }
+            }
+            // if there are still more messages
+            if (messages.length >= chunkSize && !stop) {
+                offsetID = lastMessage.key // get the last message
+                return new Promise((resolve, reject) => {
+                    // send query after 200 ms
+                    setTimeout(() => loadMessage().then(resolve).catch(reject), 200)
+                })
+            }
+        }
+        return loadMessage() as Promise<void>
+    }
+    /**
+     * Load the entire friggin conversation with a group or person
+     * @param onMessage callback for every message retreived
+     * @param chunkSize the number of messages to load in a single request
+     * @param mostRecentFirst retreive the most recent message first or retreive from the converation start
+     */
     loadAllMessages(jid: string, onMessage: (m: WAMessage) => Promise<void>|void, chunkSize = 25, mostRecentFirst = true) {
         let offsetID = null
         const loadMessage = async () => {
@@ -391,5 +431,17 @@ export class WAConnection extends Base {
             }
         }
         return response
+    }
+    /**
+    * check message sent date by whatsapp timestamp
+    * @param {boolean} timestamp the timestamp of message
+    * @return {boolean} 
+    */
+    checkIsTodayMessage (timestamp: number) {
+        timestamp = timestamp * 1000
+        let today = new Date().setHours(0, 0, 0, 0)
+        let sentDate = new Date(timestamp).setHours(0, 0, 0, 0)
+        if (today === sentDate) return true
+        return false
     }
 }
